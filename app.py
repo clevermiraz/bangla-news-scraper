@@ -7,12 +7,10 @@ from typing import Dict, List, Iterable
 
 import requests
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 
-# Optional Gemini legacy SDK; used if available and key provided
-try:
-    import google.generativeai as genai_legacy  # type: ignore
-except Exception:  # pragma: no cover
-    genai_legacy = None
+# Load environment variables from .env if present
+load_dotenv()
 
 # Legacy default output (kept for CLI compatibility)
 OUTPUT_FILE = "news_data.json"
@@ -177,22 +175,12 @@ def extract_article_text_generic(url: str) -> str:
     return "\n".join(paragraphs[:20])
 
 
-def configure_gemini_legacy() -> None:
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    if api_key and genai_legacy:
-        try:
-            genai_legacy.configure(api_key=api_key)
-        except Exception:
-            pass
-
-
 def summarize_text_with_gemini(title: str, content: str) -> str:
-    """Summarize article content using Gemini if available; fallback otherwise."""
+    """Summarize article content using Gemini (new SDK only); fallback if missing."""
     if not content:
         return ""
 
     api_key = os.environ.get("GOOGLE_API_KEY")
-    # New SDK first (google-genai)
     if api_key:
         try:
             from google import genai as genai_new  # type: ignore
@@ -215,41 +203,20 @@ def summarize_text_with_gemini(title: str, content: str) -> str:
             if text:
                 return text[:800]
         except Exception:
-            # fall through to legacy SDK / fallback
             pass
 
-    # Legacy SDK (google-generativeai)
-    if not (api_key and genai_legacy):
-        text = content.strip()
-        if not text:
-            return ""
-        for sep in ["।", ".", "!", "?"]:
-            parts = text.split(sep)
-            if len(parts) > 1:
-                summary = sep.join(parts[:2]).strip()
-                if not summary.endswith(sep):
-                    summary += sep
-                return summary[:500]
-        return text[:500]
-
-    try:
-        configure_gemini_legacy()
-        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
-        model = genai_legacy.GenerativeModel(model_name)
-        prompt = (
-            "আপনি একজন সংবাদ সহকারী। নিচের খবরের সারমর্ম ২-৩ বাক্যে বাংলায় সংক্ষেপে লিখুন। "
-            "কোনো মতামত বা অলংকার যোগ করবেন না, কেবল মূল তথ্য দিন।\n\n"
-            f"শিরোনাম: {title}\n\n"
-            f"বিবরণ: {content[:6000]}\n"
-        )
-        response = model.generate_content(prompt)
-        text = getattr(response, "text", "").strip()
-        if text:
-            return text[:800]
-    except Exception:
-        pass
-
-    return content[:500]
+    # Fallback when API/key unavailable
+    text = content.strip()
+    if not text:
+        return ""
+    for sep in ["।", ".", "!", "?"]:
+        parts = text.split(sep)
+        if len(parts) > 1:
+            summary = sep.join(parts[:2]).strip()
+            if not summary.endswith(sep):
+                summary += sep
+            return summary[:500]
+    return text[:500]
 
 
 def enrich_with_details_and_summary(articles: Iterable[dict]) -> List[dict]:
