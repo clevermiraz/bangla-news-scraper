@@ -34,18 +34,22 @@ def home_page() -> str:
                 h1 { margin: 0 0 12px; font-size: 24px; }
                 p { margin: 0 0 20px; color: #9ca3af; }
                 .actions { display: flex; gap: 12px; }
-                .btn { appearance: none; border: none; border-radius: 10px; padding: 12px 16px; font-weight: 600; cursor: pointer; }
+                .btn { appearance: none; border: none; border-radius: 10px; padding: 12px 16px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 240px; min-height: 44px; }
                 .btn.primary { background: #22c55e; color: #052e16; }
-                .btn.secondary { background: #374151; color: #e5e7eb; }
+                .btn.primary:disabled { opacity: 0.8; cursor: not-allowed; }
                 .btn:active { transform: translateY(1px); }
                 a { color: #60a5fa; text-decoration: none; }
                 .hint { margin-top: 16px; font-size: 14px; color: #94a3b8; }
+                .loader { width: 18px; height: 18px; border: 3px solid rgba(0,0,0,0.15); border-top-color: rgba(0,0,0,0.6); border-radius: 50%; animation: spin 0.8s linear infinite; }
+                @keyframes spin { to { transform: rotate(360deg); } }
             </style>
             <script>
                 async function generateAndDownload() {
                     const btn = document.getElementById('genBtn');
                     const spinner = document.getElementById('spinner');
+                    const label = document.getElementById('btnLabel');
                     btn.disabled = true;
+                    label.style.display = 'none';
                     spinner.style.display = 'inline-block';
                     try {
                         const response = await fetch('/download');
@@ -72,6 +76,7 @@ def home_page() -> str:
                     } finally {
                         btn.disabled = false;
                         spinner.style.display = 'none';
+                        label.style.display = 'inline';
                     }
                 }
             </script>
@@ -82,7 +87,7 @@ def home_page() -> str:
                     <h1>Bangla News Scraper</h1>
                     <p>Click the button to scrape latest headlines and download <code>news_data.json</code>.</p>
                     <div class=\"actions\">
-                        <button id=\"genBtn\" class=\"btn primary\" onclick=\"generateAndDownload()\">\n+                          <span id=\"spinner\" style=\"display:none;margin-right:8px;\">⏳</span>\n+                          Generate & Download\n+                        </button>
+                        <button id=\"genBtn\" class=\"btn primary\" onclick=\"generateAndDownload()\">\n+                          <span id=\"btnLabel\">Generate & Download</span>\n+                          <span id=\"spinner\" class=\"loader\" style=\"display:none;\"></span>\n+                        </button>
                     </div>
                     <div class=\"hint\">Server must have internet access to scrape news sites.</div>
                 </div>
