@@ -87,7 +87,7 @@ def home_page() -> str:
                     <h1>Bangla News Scraper</h1>
                     <p>Click the button to scrape latest headlines and download <code>news_data.json</code>.</p>
                     <div class=\"actions\">
-                        <button id=\"genBtn\" class=\"btn primary\" onclick=\"generateAndDownload()\">\n+                          <span id=\"btnLabel\">Generate & Download</span>\n+                          <span id=\"spinner\" class=\"loader\" style=\"display:none;\"></span>\n+                        </button>
+                        <button id=\"genBtn\" class=\"btn primary\" onclick=\"generateAndDownload()\">\n                          <span id=\"btnLabel\">Generate & Download</span>\n                          <span id=\"spinner\" class=\"loader\" style=\"display:none;\"></span>\n                        </button>
                     </div>
                     <div class=\"hint\">Server must have internet access to scrape news sites.</div>
                 </div>

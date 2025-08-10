@@ -140,5 +140,5 @@ cover/
 # Uvicorn / app logs
 *.log
 
-# Project-specific: generated output
-news_data.json
+!.env.example
+

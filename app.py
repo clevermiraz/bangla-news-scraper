@@ -1,9 +1,9 @@
-import os
 import hashlib
 import json
+import os
 from datetime import datetime
+from typing import Dict, Iterable, List
 from urllib.parse import urljoin
-from typing import Dict, List, Iterable
 
 import requests
 from bs4 import BeautifulSoup
@@ -168,7 +168,9 @@ def extract_article_text_generic(url: str) -> str:
             break
 
     if not paragraphs:
-        texts: List[str] = [el.get_text(strip=True) for el in soup.select("div,section")]
+        texts: List[str] = [
+            el.get_text(strip=True) for el in soup.select("div,section")
+        ]
         texts = [t for t in texts if len(t) > 60]
         paragraphs = texts[:8]
 
@@ -180,7 +182,7 @@ def summarize_text_with_gemini(title: str, content: str) -> str:
     if not content:
         return ""
 
-    api_key = os.environ.get("GOOGLE_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if api_key:
         try:
             from google import genai as genai_new  # type: ignore
@@ -194,7 +196,11 @@ def summarize_text_with_gemini(title: str, content: str) -> str:
                 f"বিবরণ: {content[:6000]}\n"
             )
             response = client.models.generate_content(model=model_name, contents=prompt)
-            text = getattr(response, "output_text", None) or getattr(response, "text", None) or ""
+            text = (
+                getattr(response, "output_text", None)
+                or getattr(response, "text", None)
+                or ""
+            )
             if not text:
                 try:
                     text = response.candidates[0].content.parts[0].text  # type: ignore[attr-defined]

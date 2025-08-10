@@ -51,8 +51,8 @@ python3 app.py
 
 The output will be saved in a file named `news_data.json` in the same directory as the script. The JSON file will contain an array of news articles, each with a unique ID, headline, and URL.
 
-
 ## Example Output
+
 ```json
 {
   "unique_id": {
