@@ -1,17 +1,26 @@
 from pathlib import Path
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from datetime import datetime
 
-# Import the existing scraper logic
-from app import main as run_scraper, OUTPUT_FILE
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+
+# Import the enhanced scraper logic
+from app import generate_json_bytes_with_summaries
 
 app = FastAPI(title="Bangla News Scraper API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/", response_class=HTMLResponse)
 def home_page() -> str:
-    return (
-        """
+    return """
         <!doctype html>
         <html lang=\"en\">
         <head>
@@ -34,6 +43,10 @@ def home_page() -> str:
             </style>
             <script>
                 async function generateAndDownload() {
+                    const btn = document.getElementById('genBtn');
+                    const spinner = document.getElementById('spinner');
+                    btn.disabled = true;
+                    spinner.style.display = 'inline-block';
                     try {
                         const response = await fetch('/download');
                         if (!response.ok) {
@@ -41,17 +54,24 @@ def home_page() -> str:
                             alert('Failed to generate file: ' + text);
                             return;
                         }
+                        const disposition = response.headers.get('Content-Disposition') || '';
+                        let filename = 'news_data.json';
+                        const match = /filename=\"?([^\";]+)\"?/i.exec(disposition);
+                        if (match && match[1]) filename = match[1];
                         const blob = await response.blob();
                         const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url;
-                        a.download = 'news_data.json';
+                        a.download = filename;
                         document.body.appendChild(a);
                         a.click();
                         a.remove();
                         window.URL.revokeObjectURL(url);
                     } catch (err) {
                         alert('Error: ' + err);
+                    } finally {
+                        btn.disabled = false;
+                        spinner.style.display = 'none';
                     }
                 }
             </script>
@@ -62,8 +82,7 @@ def home_page() -> str:
                     <h1>Bangla News Scraper</h1>
                     <p>Click the button to scrape latest headlines and download <code>news_data.json</code>.</p>
                     <div class=\"actions\">
-                        <button class=\"btn primary\" onclick=\"generateAndDownload()\">Generate & Download</button>
-                        <a class=\"btn secondary\" href=\"/file\" download>Download Last File</a>
+                        <button id=\"genBtn\" class=\"btn primary\" onclick=\"generateAndDownload()\">\n+                          <span id=\"spinner\" style=\"display:none;margin-right:8px;\">⏳</span>\n+                          Generate & Download\n+                        </button>
                     </div>
                     <div class=\"hint\">Server must have internet access to scrape news sites.</div>
                 </div>
@@ -71,30 +90,23 @@ def home_page() -> str:
         </body>
         </html>
         """
-    )
 
 
 @app.get("/download")
 def generate_and_download():
-    # Run the scraper to regenerate the JSON file
-    run_scraper()
-    output_path = Path(OUTPUT_FILE).resolve()
-    if not output_path.exists():
-        return JSONResponse({"error": "Failed to generate output file"}, status_code=500)
-    return FileResponse(
-        path=str(output_path),
-        media_type="application/json",
-        filename=output_path.name,
-    )
+    # Always generate fresh data and stream a timestamped file
+    try:
+        json_bytes = generate_json_bytes_with_summaries()
+    except Exception as e:
+        return JSONResponse({"error": f"Generation failed: {e}"}, status_code=500)
 
-
-@app.get("/file")
-def download_last_file():
-    output_path = Path(OUTPUT_FILE).resolve()
-    if not output_path.exists():
-        return JSONResponse({"error": "File not found. Click 'Generate & Download' first."}, status_code=404)
-    return FileResponse(
-        path=str(output_path),
+    timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+    filename = f"news_data_{timestamp}.json"
+    return StreamingResponse(
+        iter([json_bytes]),
         media_type="application/json",
-        filename=output_path.name,
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"",
+            "Cache-Control": "no-store",
+        },
     )

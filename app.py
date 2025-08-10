@@ -1,124 +1,276 @@
-import requests
-from bs4 import BeautifulSoup
+import os
+import hashlib
 import json
 from datetime import datetime
-import hashlib
 from urllib.parse import urljoin
+from typing import Dict, List, Iterable
 
-OUTPUT_FILE = 'news_data.json'
+import requests
+from bs4 import BeautifulSoup
+
+# Optional Gemini dependency; used if available and key provided
+try:
+    import google.generativeai as genai  # type: ignore
+except Exception:  # pragma: no cover
+    genai = None
+
+# Legacy default output (kept for CLI compatibility)
+OUTPUT_FILE = "news_data.json"
 
 
 def load_existing_data():
     try:
-        with open(OUTPUT_FILE, 'r', encoding='utf-8') as f:
+        with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
         return {}
 
 
-def save_data(data):
-    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+def save_data_to_path(data: Dict[str, dict], path: str) -> None:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+def save_data(data: Dict[str, dict]) -> None:
+    """Backward compatible save to legacy OUTPUT_FILE."""
+    save_data_to_path(data, OUTPUT_FILE)
 
 
 def generate_id(url):
     return hashlib.md5(url.encode()).hexdigest()
 
+
 # ✅ Prothom Alo
 
 
 def scrape_prothom_alo():
-    url = 'https://www.prothomalo.com'
+    url = "https://www.prothomalo.com"
     res = requests.get(url)
-    soup = BeautifulSoup(res.text, 'html.parser')
+    soup = BeautifulSoup(res.text, "html.parser")
 
     headlines = []
-    links = soup.select('a.title-link')
+    links = soup.select("a.title-link")
     for link in links:
         text = link.get_text(strip=True)
-        href = link.get('href')
+        href = link.get("href")
         if text and href:
             full_url = urljoin(url, href)
-            headlines.append({
-                'source': 'Prothom Alo',
-                'headline': text,
-                'url': full_url,
-                'id': generate_id(full_url),
-                'timestamp': datetime.utcnow().isoformat()
-            })
+            headlines.append(
+                {
+                    "source": "Prothom Alo",
+                    "headline": text,
+                    "url": full_url,
+                    "id": generate_id(full_url),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
     return headlines
+
 
 # ✅ Jugantor
 
 
 def scrape_jugantor():
-    url = 'https://www.jugantor.com'
+    url = "https://www.jugantor.com"
     res = requests.get(url)
-    soup = BeautifulSoup(res.text, 'html.parser')
+    soup = BeautifulSoup(res.text, "html.parser")
 
     headlines = []
-    articles = soup.select('div.desktopSectionLead')
+    articles = soup.select("div.desktopSectionLead")
     for article in articles:
-        h3 = article.select_one('h3.title11')
-        a = article.select_one('a.linkOverlay')
+        h3 = article.select_one("h3.title11")
+        a = article.select_one("a.linkOverlay")
         if h3 and a:
             text = h3.get_text(strip=True)
-            href = a.get('href')
+            href = a.get("href")
             if text and href:
                 full_url = urljoin(url, href)
-                headlines.append({
-                    'source': 'Jugantor',
-                    'headline': text,
-                    'url': full_url,
-                    'id': generate_id(full_url),
-                    'timestamp': datetime.utcnow().isoformat()
-                })
+                headlines.append(
+                    {
+                        "source": "Jugantor",
+                        "headline": text,
+                        "url": full_url,
+                        "id": generate_id(full_url),
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }
+                )
     return headlines
+
 
 # ✅ Ittefaq
 
 
 def scrape_ittefaq():
-    url = 'https://www.ittefaq.com.bd'
+    url = "https://www.ittefaq.com.bd"
     res = requests.get(url)
-    soup = BeautifulSoup(res.text, 'html.parser')
+    soup = BeautifulSoup(res.text, "html.parser")
 
     headlines = []
-    links = soup.select('a.link_overlay')
+    links = soup.select("a.link_overlay")
     for link in links:
         text = link.get_text(strip=True)
-        href = link.get('href')
+        href = link.get("href")
         if text and href:
             full_url = urljoin(url, href)
-            headlines.append({
-                'source': 'Ittefaq',
-                'headline': text,
-                'url': full_url,
-                'id': generate_id(full_url),
-                'timestamp': datetime.utcnow().isoformat()
-            })
+            headlines.append(
+                {
+                    "source": "Ittefaq",
+                    "headline": text,
+                    "url": full_url,
+                    "id": generate_id(full_url),
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
     return headlines
+
+
+# -------- Details extraction and summarization -------- #
+
+
+def extract_article_text_generic(url: str) -> str:
+    """Fetch article URL and extract readable text with simple heuristics."""
+    try:
+        res = requests.get(url, timeout=15)
+        res.raise_for_status()
+    except Exception:
+        return ""
+
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    containers: List[BeautifulSoup] = []
+    article_tag = soup.find("article")
+    if article_tag:
+        containers.append(article_tag)
+
+    for selector in [
+        '[itemprop="articleBody"]',
+        ".article-body",
+        ".story",
+        ".story-body",
+        ".details",
+        ".detail-body",
+        ".content",
+        "#content",
+        ".news-content",
+    ]:
+        found = soup.select_one(selector)
+        if found and found not in containers:
+            containers.append(found)
+
+    if not containers:
+        containers = [soup.body] if soup.body else []
+
+    paragraphs: List[str] = []
+    for container in containers:
+        for p in container.find_all("p"):
+            text = p.get_text(strip=True)
+            if text and len(text) > 40:
+                paragraphs.append(text)
+        if paragraphs:
+            break
+
+    if not paragraphs:
+        texts: List[str] = [el.get_text(strip=True) for el in soup.select("div,section")]
+        texts = [t for t in texts if len(t) > 60]
+        paragraphs = texts[:8]
+
+    return "\n".join(paragraphs[:20])
+
+
+def configure_gemini() -> None:
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if api_key and genai:
+        try:
+            genai.configure(api_key=api_key)
+        except Exception:
+            pass
+
+
+def summarize_text_with_gemini(title: str, content: str) -> str:
+    """Summarize article content using Gemini if available; fallback otherwise."""
+    if not content:
+        return ""
+
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    if not (api_key and genai):
+        text = content.strip()
+        if not text:
+            return ""
+        for sep in ["।", ".", "!", "?"]:
+            parts = text.split(sep)
+            if len(parts) > 1:
+                summary = sep.join(parts[:2]).strip()
+                if not summary.endswith(sep):
+                    summary += sep
+                return summary[:500]
+        return text[:500]
+
+    try:
+        configure_gemini()
+        model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name)
+        prompt = (
+            "আপনি একজন সংবাদ সহকারী। নিচের খবরের সারমর্ম ২-৩ বাক্যে বাংলায় সংক্ষেপে লিখুন। "
+            "কোনো মতামত বা অলংকার যোগ করবেন না, কেবল মূল তথ্য দিন।\n\n"
+            f"শিরোনাম: {title}\n\n"
+            f"বিবরণ: {content[:6000]}\n"
+        )
+        response = model.generate_content(prompt, safety_settings={})
+        text = getattr(response, "text", "").strip()
+        if text:
+            return text[:800]
+    except Exception:
+        pass
+
+    return content[:500]
+
+
+def enrich_with_details_and_summary(articles: Iterable[dict]) -> List[dict]:
+    enriched: List[dict] = []
+    for article in articles:
+        content = extract_article_text_generic(article["url"])
+        summary = summarize_text_with_gemini(article["headline"], content)
+        enriched.append({**article, "content": content, "summary": summary})
+    return enriched
+
+
+def scrape_all() -> List[dict]:
+    """Scrape all sources, deduplicate, and return as a list."""
+    existing_data = load_existing_data()
+    all_by_id: Dict[str, dict] = {item["id"]: item for item in existing_data.values()}
+
+    for scraper in [scrape_prothom_alo, scrape_jugantor, scrape_ittefaq]:
+        try:
+            for article in scraper():
+                if article["id"] not in all_by_id:
+                    all_by_id[article["id"]] = article
+        except Exception as e:
+            print(f"Error in scraper {scraper.__name__}: {e}")
+
+    items = list(all_by_id.values())
+    items.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return items
+
+
+def generate_json_bytes_with_summaries() -> bytes:
+    """Full pipeline: scrape -> fetch details -> summarize -> JSON bytes."""
+    base_articles = scrape_all()
+    enriched = enrich_with_details_and_summary(base_articles)
+    return json.dumps(enriched, ensure_ascii=False, indent=2).encode("utf-8")
+
 
 # ✅ Main Function
 
 
 def main():
-    existing_data = load_existing_data()
-    all_data = {item['id']: item for item in existing_data.values()}
-
-    for scraper in [scrape_prothom_alo, scrape_jugantor, scrape_ittefaq]:
-        try:
-            articles = scraper()
-            for article in articles:
-                if article['id'] not in all_data:
-                    all_data[article['id']] = article
-        except Exception as e:
-            print(f"Error in scraper {scraper.__name__}: {e}")
-
-    save_data(all_data)
-    print(
-        f"✅ Scraped {len(all_data)} unique headlines. Saved to '{OUTPUT_FILE}'.")
+    """CLI behavior: generate fresh enriched data to a timestamped file."""
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    output_file = f"news_data_{timestamp}.json"
+    json_bytes = generate_json_bytes_with_summaries()
+    # Store pretty JSON to timestamped file
+    save_data_to_path(json.loads(json_bytes.decode("utf-8")), output_file)
+    print(f"✅ Generated fresh data with summaries. Saved to '{output_file}'.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
