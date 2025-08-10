@@ -8,11 +8,11 @@ from typing import Dict, List, Iterable
 import requests
 from bs4 import BeautifulSoup
 
-# Optional Gemini dependency; used if available and key provided
+# Optional Gemini legacy SDK; used if available and key provided
 try:
-    import google.generativeai as genai  # type: ignore
+    import google.generativeai as genai_legacy  # type: ignore
 except Exception:  # pragma: no cover
-    genai = None
+    genai_legacy = None
 
 # Legacy default output (kept for CLI compatibility)
 OUTPUT_FILE = "news_data.json"
@@ -177,11 +177,11 @@ def extract_article_text_generic(url: str) -> str:
     return "\n".join(paragraphs[:20])
 
 
-def configure_gemini() -> None:
+def configure_gemini_legacy() -> None:
     api_key = os.environ.get("GOOGLE_API_KEY")
-    if api_key and genai:
+    if api_key and genai_legacy:
         try:
-            genai.configure(api_key=api_key)
+            genai_legacy.configure(api_key=api_key)
         except Exception:
             pass
 
@@ -192,7 +192,34 @@ def summarize_text_with_gemini(title: str, content: str) -> str:
         return ""
 
     api_key = os.environ.get("GOOGLE_API_KEY")
-    if not (api_key and genai):
+    # New SDK first (google-genai)
+    if api_key:
+        try:
+            from google import genai as genai_new  # type: ignore
+
+            client = genai_new.Client(api_key=api_key)
+            model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+            prompt = (
+                "আপনি একজন সংবাদ সহকারী। নিচের খবরের সারমর্ম ২-৩ বাক্যে বাংলায় সংক্ষেপে লিখুন। "
+                "কোনো মতামত বা অলংকার যোগ করবেন না, কেবল মূল তথ্য দিন।\n\n"
+                f"শিরোনাম: {title}\n\n"
+                f"বিবরণ: {content[:6000]}\n"
+            )
+            response = client.models.generate_content(model=model_name, contents=prompt)
+            text = getattr(response, "output_text", None) or getattr(response, "text", None) or ""
+            if not text:
+                try:
+                    text = response.candidates[0].content.parts[0].text  # type: ignore[attr-defined]
+                except Exception:
+                    text = ""
+            if text:
+                return text[:800]
+        except Exception:
+            # fall through to legacy SDK / fallback
+            pass
+
+    # Legacy SDK (google-generativeai)
+    if not (api_key and genai_legacy):
         text = content.strip()
         if not text:
             return ""
@@ -206,16 +233,16 @@ def summarize_text_with_gemini(title: str, content: str) -> str:
         return text[:500]
 
     try:
-        configure_gemini()
+        configure_gemini_legacy()
         model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
-        model = genai.GenerativeModel(model_name)
+        model = genai_legacy.GenerativeModel(model_name)
         prompt = (
             "আপনি একজন সংবাদ সহকারী। নিচের খবরের সারমর্ম ২-৩ বাক্যে বাংলায় সংক্ষেপে লিখুন। "
             "কোনো মতামত বা অলংকার যোগ করবেন না, কেবল মূল তথ্য দিন।\n\n"
             f"শিরোনাম: {title}\n\n"
             f"বিবরণ: {content[:6000]}\n"
         )
-        response = model.generate_content(prompt, safety_settings={})
+        response = model.generate_content(prompt)
         text = getattr(response, "text", "").strip()
         if text:
             return text[:800]
